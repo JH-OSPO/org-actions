@@ -1,0 +1,33 @@
+name: ORT
+on:
+  workflow_call:
+    inputs:
+      repo-path:
+        required: true
+        type: string
+      ort-output:
+        required: false
+        type: string
+        default: "ort-results"
+
+jobs:
+  ort-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          path: ${{ inputs.repo-path }}
+
+      - name: Set up ORT
+        run: |
+          curl -Lo ort https://github.com/oss-review-toolkit/ort/releases/download/68.2.0/ort-68.2.0.zip
+          chmod +x ort
+
+      - name: Run ORT Analyze
+        run: |
+          ./ort analyze -i ${{ inputs.repo-path }} -o ${{ inputs.ort-output }} --stacktrace
+
+      - name: Generate ORT Report
+        run: |
+          ./ort report -i ${{ inputs.ort-output }}/analyzer -o ${{ inputs.ort-output }}/report --formats Html,Text
