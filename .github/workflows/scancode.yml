@@ -1,0 +1,30 @@
+name: "ScanCode License & Copyright Scan"
+description: "Run ScanCode Toolkit to scan repository for licenses, copyrights, and dependencies"
+author: "Your Name"
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.x"
+
+    - name: Install ScanCode Toolkit
+      run: |
+        python -m pip install --upgrade pip
+        pip install scancode-toolkit
+
+    - name: Run ScanCode Scan
+      run: |
+        mkdir -p scancode-results
+        scancode --license --copyright --json scancode-results/scancode.json .
+      shell: bash
+
+    - name: Upload Scan Results
+      uses: actions/upload-artifact@v4
+      with:
+        name: scancode-results
+        path: scancode-results/
