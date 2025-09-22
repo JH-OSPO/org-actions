@@ -3,6 +3,15 @@ description: "Run ScanCode Toolkit to scan repository for licenses, copyrights, 
 author: "Your Name"
 runs:
   using: "composite"
+  inputs:
+    scan-path:
+      description: "Path to scan"
+      required: true
+      default: "."
+    output-name:
+      description: "Artifact name / output directory"
+      required: true
+      default: "scancode-results"
   steps:
     - name: Checkout repository
       uses: actions/checkout@v3
@@ -19,12 +28,12 @@ runs:
 
     - name: Run ScanCode Scan
       run: |
-        mkdir -p scancode-results
-        scancode --license --copyright --json scancode-results/scancode.json .
+        mkdir -p ${{ inputs.output-name }}
+        scancode --license --copyright --json ${{ inputs.output-name }}/scancode.json ${{ inputs.scan-path }}
       shell: bash
 
     - name: Upload Scan Results
       uses: actions/upload-artifact@v4
       with:
-        name: scancode-results
-        path: scancode-results/
+        name: ${{ inputs.output-name }}
+        path: ${{ inputs.output-name }}
