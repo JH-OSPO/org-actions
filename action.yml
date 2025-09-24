@@ -1,57 +1,54 @@
-name: "ScanCode License & Copyright Scan"
-description: "Run ScanCode Toolkit to scan repository for licenses, copyrights, and dependencies"
+name: "ScanCode License Reporter"
+description: "Scan a repository for license information and comment results on pull requests"
 author: "Your Name"
-
 inputs:
   scan-path:
-    description: "Path to scan"
+    description: "Path inside the target repo to scan"
     required: false
     default: "."
   output-name:
-    description: "Artifact name / output directory"
+    description: "Directory to hold scan results"
     required: false
     default: "scancode-results"
+  github-token:
+    description: "GitHub token from the caller repo (use secrets.GITHUB_TOKEN)"
+    required: true
 
 runs:
   using: "composite"
   steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: "3.11"
-
-    - name: Cache ScanCode
-      uses: actions/cache@v3
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-scancode-${{ hashFiles('**/requirements*.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-scancode-
-          ${{ runner.os }}-pip-
 
     - name: Install ScanCode Toolkit
       shell: bash
       run: |
         python -m pip install --upgrade pip
         pip install scancode-toolkit "boolean.py>=4.0" "click==7.1.2"
-  
+
     - name: Run License Scan
       shell: bash
       run: |
         mkdir -p "${{ inputs.output-name }}"
-        scancode -l --json-pp "${{ inputs.output-name }}/results.json" "${{ inputs.scan-path }}" || exit 1
+        set -e
+        scancode -l --json-pp "${{ inputs.output-name }}/results.json" "${{ inputs.scan-path }}"
 
+    - name: Verify results file exists
+      shell: bash
+      run: |
+        if [ ! -f "${{ inputs.output-name }}/results.json" ]; then
+          echo "ScanCode did not create results.json" >&2
+          exit 1
+        fi
 
     - name: Extract License Summary
       id: summary
       shell: bash
       run: |
-        LICENSES=$(jq -r '.files[].licenses[].spdx_license_key' "${{ inputs.output-name }}/results.json" | sort -u)
+        RESULTS="${{ inputs.output-name }}/results.json"
+        LICENSES=$(jq -r '.files[].licenses[].spdx_license_key' "$RESULTS" | sort -u)
         if [ -z "$LICENSES" ]; then
           SUMMARY="⚠️ No license detected."
         else
@@ -59,7 +56,7 @@ runs:
         fi
         echo "summary=$SUMMARY" >> $GITHUB_OUTPUT
 
-    - name: Upload Scan Results Artifact
+    - name: Upload Results Artifact
       uses: actions/upload-artifact@v4
       with:
         name: ${{ inputs.output-name }}
@@ -71,18 +68,17 @@ runs:
       with:
         github-token: ${{ inputs.github-token }}
         script: |
-          const body = `### ScanCode License Report
-          ${process.env.SUMMARY || core.getInput('summary')}
-          
-          Full JSON results are uploaded as the \`${{ inputs.output-name }}\` artifact.`;
+          const summary = core.getInput('summary') || process.env.SUMMARY
+          const body = `### ScanCode License Report\n${summary}\n\nFull JSON results are uploaded as the \`${{ inputs.output-name }}\` artifact.`
           await github.rest.issues.createComment({
             issue_number: context.issue.number,
             owner: context.repo.owner,
             repo: context.repo.repo,
             body
-          });
+          })
       env:
         SUMMARY: ${{ steps.summary.outputs.summary }}
+
     # - name: Create output directory
     #   shell: bash
     #   run: |
