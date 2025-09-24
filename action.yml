@@ -44,6 +44,42 @@ runs:
       shell: bash
       run: scancode -l --json-pp results.json .
 
+    - name: Extract License Summary
+      id: summary
+      shell: bash
+      run: |
+        LICENSES=$(jq -r '.files[].licenses[].spdx_license_key' "${{ inputs.output-name }}/results.json" | sort -u)
+        if [ -z "$LICENSES" ]; then
+          SUMMARY="⚠️ No license detected."
+        else
+          SUMMARY="✅ Detected license(s): $LICENSES"
+        fi
+        echo "summary=$SUMMARY" >> $GITHUB_OUTPUT
+
+    - name: Upload Scan Results Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.output-name }}
+        path: ${{ inputs.output-name }}/results.json
+
+    - name: Comment on Pull Request
+      if: ${{ github.event_name == 'pull_request' }}
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const body = `### ScanCode License Report
+          ${process.env.SUMMARY || core.getInput('summary')}
+          
+          Full JSON results are uploaded as the \`${{ inputs.output-name }}\` artifact.`;
+          await github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body
+          });
+      env:
+        SUMMARY: ${{ steps.summary.outputs.summary }}
     # - name: Create output directory
     #   shell: bash
     #   run: |
