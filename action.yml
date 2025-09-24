@@ -48,7 +48,7 @@ runs:
       shell: bash
       run: |
         RESULTS="${{ inputs.output-name }}/results.json"
-        LICENSES=$(jq -r '.files[].licenses[]?.spdx_license_key' "$RESULTS" | sort -u)
+        LICENSES=$(jq -r '.files[] | select(.licenses != null) | .licenses[].spdx_license_key' "$RESULTS" | sort -u)
         if [ -z "$LICENSES" ]; then
           SUMMARY="⚠️ No license detected."
         else
