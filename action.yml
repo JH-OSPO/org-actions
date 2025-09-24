@@ -41,6 +41,7 @@ runs:
         pip install scancode-toolkit "boolean.py>=4.0" "click==7.1.2"
   
     - name: Run License Scan
+      shell: bash
       run: scancode -l --json-pp results.json .
 
     # - name: Create output directory
