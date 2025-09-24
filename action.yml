@@ -42,7 +42,10 @@ runs:
   
     - name: Run License Scan
       shell: bash
-      run: scancode -l --json-pp results.json .
+      run: |
+        mkdir -p "${{ inputs.output-name }}"
+        scancode -l --json-pp "${{ inputs.output-name }}/results.json" "${{ inputs.scan-path }}" || exit 1
+
 
     - name: Extract License Summary
       id: summary
