@@ -2,10 +2,6 @@ name: "ScanCode License & Copyright Scan"
 description: "Run ScanCode Toolkit to scan repository for licenses, copyrights, and dependencies"
 author: "Your Name"
 
-on:
-  push:
-  pull_request:
-
 inputs:
   scan-path:
     description: "Path to scan"
@@ -16,32 +12,87 @@ inputs:
     required: false
     default: "scancode-results"
 
-jobs:
-  scancode:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.11"
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
 
-      - name: Install ScanCode Toolkit
-        run: |
-          python -m pip install --upgrade pip
-          pip install scancode-toolkit==33.0.1
+    - name: Cache ScanCode
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-scancode-${{ hashFiles('**/requirements*.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-scancode-
+          ${{ runner.os }}-pip-
 
-      - name: Run ScanCode Scan
-        run: |
-          mkdir -p "${{ inputs.output-name }}"
-          scancode --license --copyright \
-                   --json "${{ inputs.output-name }}/scancode.json" \
-                   "${{ inputs.scan-path }}"
+    - name: Install ScanCode Toolkit
+      shell: bash
+      run: |
+        python -m pip install --upgrade pip
+        pip install scancode-toolkit==33.0.1
 
-      - name: Upload Scan Results
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ inputs.output-name }}
-          path: ${{ inputs.output-name }}
+    - name: Create output directory
+      shell: bash
+      run: |
+        mkdir -p "${{ inputs.output-name }}"
+
+    - name: Run ScanCode Scan
+      shell: bash
+      run: |
+        echo "Starting ScanCode scan of: ${{ inputs.scan-path }}"
+        scancode --license --copyright --info --package \
+                 --json "${{ inputs.output-name }}/scancode-results.json" \
+                 --html "${{ inputs.output-name }}/scancode-results.html" \
+                 --csv "${{ inputs.output-name }}/scancode-results.csv" \
+                 --timeout 300 \
+                 --processes -1 \
+                 "${{ inputs.scan-path }}"
+
+    - name: Generate Summary Report
+      shell: bash
+      run: |
+        echo "# ScanCode Results Summary" > "${{ inputs.output-name }}/SUMMARY.md"
+        echo "" >> "${{ inputs.output-name }}/SUMMARY.md"
+        echo "**Scan Path:** \`${{ inputs.scan-path }}\`" >> "${{ inputs.output-name }}/SUMMARY.md"
+        echo "**Scan Date:** $(date)" >> "${{ inputs.output-name }}/SUMMARY.md"
+        echo "" >> "${{ inputs.output-name }}/SUMMARY.md"
+        
+        # Count files scanned
+        FILES_SCANNED=$(jq '.files | length' "${{ inputs.output-name }}/scancode-results.json" 2>/dev/null || echo "0")
+        echo "**Files Scanned:** $FILES_SCANNED" >> "${{ inputs.output-name }}/SUMMARY.md"
+        
+        # Count unique licenses found
+        LICENSES_FOUND=$(jq -r '.files[].licenses[]?.short_name' "${{ inputs.output-name }}/scancode-results.json" 2>/dev/null | sort -u | wc -l || echo "0")
+        echo "**Unique Licenses Found:** $LICENSES_FOUND" >> "${{ inputs.output-name }}/SUMMARY.md"
+        
+        # Count copyrights found
+        COPYRIGHTS_FOUND=$(jq -r '.files[].copyrights[]?.copyright' "${{ inputs.output-name }}/scancode-results.json" 2>/dev/null | wc -l || echo "0")
+        echo "**Copyrights Found:** $COPYRIGHTS_FOUND" >> "${{ inputs.output-name }}/SUMMARY.md"
+        
+        echo "" >> "${{ inputs.output-name }}/SUMMARY.md"
+        echo "## Output Files" >> "${{ inputs.output-name }}/SUMMARY.md"
+        echo "- \`scancode-results.json\` - Complete scan results in JSON format" >> "${{ inputs.output-name }}/SUMMARY.md"
+        echo "- \`scancode-results.html\` - Human-readable HTML report" >> "${{ inputs.output-name }}/SUMMARY.md"
+        echo "- \`scancode-results.csv\` - Tabular data in CSV format" >> "${{ inputs.output-name }}/SUMMARY.md"
+
+    - name: Upload Scan Results
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.output-name }}
+        path: ${{ inputs.output-name }}
+        retention-days: 30
+
+    - name: Display Summary
+      shell: bash
+      run: |
+        echo "=== ScanCode Scan Complete ==="
+        cat "${{ inputs.output-name }}/SUMMARY.md"
