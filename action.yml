@@ -43,41 +43,69 @@ runs:
           exit 1
         fi
 
+    # - name: Extract License Summary
+    #   id: summary
+    #   shell: bash
+    #   run: |
+    #     RESULTS="${{ inputs.output-name }}/results.json"
+    #     LICENSES=$(jq -r '.files[] | select(.licenses != null) | .licenses[].spdx_license_key' "$RESULTS" | sort -u)
+    #     if [ -z "$LICENSES" ]; then
+    #       SUMMARY="⚠️ No license detected."
+    #     else
+    #       SUMMARY="✅ Detected license(s): $LICENSES"
+    #     fi
+    #     echo "summary=$SUMMARY" >> $GITHUB_OUTPUT
     - name: Extract License Summary
       id: summary
       shell: bash
       run: |
         RESULTS="${{ inputs.output-name }}/results.json"
-        LICENSES=$(jq -r '.files[] | select(.licenses != null) | .licenses[].spdx_license_key' "$RESULTS" | sort -u)
-        if [ -z "$LICENSES" ]; then
-          SUMMARY="⚠️ No license detected."
-        else
-          SUMMARY="✅ Detected license(s): $LICENSES"
-        fi
-        echo "summary=$SUMMARY" >> $GITHUB_OUTPUT
+        SUMMARY=$(python3 -c "
+          import json
+          import sys
 
-    - name: Upload Results Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ inputs.output-name }}
-        path: ${{ inputs.output-name }}/results.json
+          try:
+              with open('$RESULTS', 'r') as f:
+                  data = json.load(f)
+              
+              licenses = set()
+              for file_info in data.get('files', []):
+                  if file_info.get('licenses'):
+                      for license_info in file_info['licenses']:
+                          if license_info.get('spdx_license_key'):
+                              licenses.add(license_info['spdx_license_key'])
+              
+              if licenses:
+                  print(f'✅ Detected license(s): {', '.join(sorted(licenses))}')
+              else:
+                  print('⚠️ No license detected.')
+          except Exception as e:
+              print(f'❌ Error parsing results: {e}')
+              sys.exit(1)
+          ")
+              echo "summary=$SUMMARY" >> $GITHUB_OUTPUT
+              - name: Upload Results Artifact
+                uses: actions/upload-artifact@v4
+                with:
+                  name: ${{ inputs.output-name }}
+                  path: ${{ inputs.output-name }}/results.json
 
-    - name: Comment on Pull Request
-      if: ${{ github.event_name == 'pull_request' }}
-      uses: actions/github-script@v7
-      with:
-        github-token: ${{ inputs.github-token }}
-        script: |
-          const summary = core.getInput('summary') || process.env.SUMMARY
-          const body = `### ScanCode License Report\n${summary}\n\nFull JSON results are uploaded as the \`${{ inputs.output-name }}\` artifact.`
-          await github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body
-          })
-      env:
-        SUMMARY: ${{ steps.summary.outputs.summary }}
+              - name: Comment on Pull Request
+                if: ${{ github.event_name == 'pull_request' }}
+                uses: actions/github-script@v7
+                with:
+                  github-token: ${{ inputs.github-token }}
+                  script: |
+                    const summary = core.getInput('summary') || process.env.SUMMARY
+                    const body = `### ScanCode License Report\n${summary}\n\nFull JSON results are uploaded as the \`${{ inputs.output-name }}\` artifact.`
+                    await github.rest.issues.createComment({
+                      issue_number: context.issue.number,
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      body
+                    })
+                env:
+                  SUMMARY: ${{ steps.summary.outputs.summary }}
 
     # - name: Create output directory
     #   shell: bash
