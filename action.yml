@@ -83,29 +83,30 @@ runs:
               print(f'❌ Error parsing results: {e}')
               sys.exit(1)
           ")
-              echo "summary=$SUMMARY" >> $GITHUB_OUTPUT
-              - name: Upload Results Artifact
-                uses: actions/upload-artifact@v4
-                with:
-                  name: ${{ inputs.output-name }}
-                  path: ${{ inputs.output-name }}/results.json
+        echo "summary=$SUMMARY" >> $GITHUB_OUTPUT
 
-              - name: Comment on Pull Request
-                if: ${{ github.event_name == 'pull_request' }}
-                uses: actions/github-script@v7
-                with:
-                  github-token: ${{ inputs.github-token }}
-                  script: |
-                    const summary = core.getInput('summary') || process.env.SUMMARY
-                    const body = `### ScanCode License Report\n${summary}\n\nFull JSON results are uploaded as the \`${{ inputs.output-name }}\` artifact.`
-                    await github.rest.issues.createComment({
-                      issue_number: context.issue.number,
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      body
-                    })
-                env:
-                  SUMMARY: ${{ steps.summary.outputs.summary }}
+    - name: Upload Results Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.output-name }}
+        path: ${{ inputs.output-name }}/results.json
+
+    - name: Comment on Pull Request
+      if: ${{ github.event_name == 'pull_request' }}
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ inputs.github-token }}
+        script: |
+          const summary = core.getInput('summary') || process.env.SUMMARY
+          const body = `### ScanCode License Report\n${summary}\n\nFull JSON results are uploaded as the \`${{ inputs.output-name }}\` artifact.`
+          await github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body
+          })
+      env:
+        SUMMARY: ${{ steps.summary.outputs.summary }}
 
     # - name: Create output directory
     #   shell: bash
