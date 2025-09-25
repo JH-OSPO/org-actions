@@ -1,18 +1,11 @@
-name: "ScanCode License Reporter"
-description: "Scan a repository for license information and comment results on pull requests"
+name: "ScanCode License Scanner"
+description: "Simple ScanCode toolkit runner that scans for licenses and shows results"
 author: "Your Name"
 inputs:
   scan-path:
     description: "Path inside the target repo to scan"
     required: false
     default: "."
-  output-name:
-    description: "Directory to hold scan results"
-    required: false
-    default: "scancode-results"
-  github-token:
-    description: "GitHub token from the caller repo (use secrets.GITHUB_TOKEN)"
-    required: true
 
 runs:
   using: "composite"
@@ -25,142 +18,38 @@ runs:
     - name: Install ScanCode Toolkit
       shell: bash
       run: |
+        echo "Installing ScanCode Toolkit..."
         python -m pip install --upgrade pip
-        pip install scancode-toolkit "boolean.py>=4.0" "click==7.1.2"
+        pip install scancode-toolkit
 
-    - name: Run License Scan
+    - name: Run ScanCode License Scan
       shell: bash
       run: |
-        mkdir -p "${{ inputs.output-name }}"
-        set -e
-        scancode -l --json-pp "${{ inputs.output-name }}/results.json" "${{ inputs.scan-path }}"
+        echo "Running ScanCode license scan on: ${{ inputs.scan-path }}"
+        mkdir -p scancode-results
+        scancode -l --json-pp scancode-results/results.json "${{ inputs.scan-path }}"
 
-    - name: Verify results file exists
+    - name: Display License Results
       shell: bash
       run: |
-        if [ ! -f "${{ inputs.output-name }}/results.json" ]; then
-          echo "ScanCode did not create results.json" >&2
-          exit 1
+        echo "=== ScanCode License Scan Results ==="
+        echo "Scanning completed successfully!"
+        echo ""
+        echo "Results saved to: scancode-results/results.json"
+        
+        if command -v jq >/dev/null 2>&1; then
+          echo ""
+          echo "License Summary:"
+          LICENSES=$(jq -r '.files[]?.licenses[]?.spdx_license_key // empty' scancode-results/results.json 2>/dev/null | sort -u | grep -v '^$' || echo "")
+          
+          if [ -n "$LICENSES" ]; then
+            echo "✅ Detected licenses:"
+            echo "$LICENSES" | while read license; do
+              echo "  - $license"
+            done
+          else
+            echo "⚠️  No licenses detected in scan results"
+          fi
+        else
+          ls -la scancode-results/results.json
         fi
-
-    # - name: Extract License Summary
-    #   id: summary
-    #   shell: bash
-    #   run: |
-    #     RESULTS="${{ inputs.output-name }}/results.json"
-    #     LICENSES=$(jq -r '.files[] | select(.licenses != null) | .licenses[].spdx_license_key' "$RESULTS" | sort -u)
-    #     if [ -z "$LICENSES" ]; then
-    #       SUMMARY="⚠️ No license detected."
-    #     else
-    #       SUMMARY="✅ Detected license(s): $LICENSES"
-    #     fi
-    #     echo "summary=$SUMMARY" >> $GITHUB_OUTPUT
-    - name: Extract License Summary
-      id: summary
-      shell: bash
-      run: |
-        RESULTS="${{ inputs.output-name }}/results.json"
-        SUMMARY=$(python3 -c "
-import json
-import sys
-
-try:
-    with open('$RESULTS', 'r') as f:
-        data = json.load(f)
-    
-    licenses = set()
-    for file_info in data.get('files', []):
-        if file_info.get('licenses'):
-            for license_info in file_info['licenses']:
-                if license_info.get('spdx_license_key'):
-                    licenses.add(license_info['spdx_license_key'])
-    
-    if licenses:
-        print(f'✅ Detected license(s): {\", \".join(sorted(licenses))}')
-    else:
-        print('⚠️ No license detected.')
-except Exception as e:
-    print(f'❌ Error parsing results: {e}')
-    sys.exit(1)
-")
-        echo "summary=$SUMMARY" >> $GITHUB_OUTPUT
-
-    - name: Upload Results Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ inputs.output-name }}
-        path: ${{ inputs.output-name }}/results.json
-
-    - name: Comment on Pull Request
-      if: ${{ github.event_name == 'pull_request' }}
-      uses: actions/github-script@v7
-      with:
-        github-token: ${{ inputs.github-token }}
-        script: |
-          const summary = core.getInput('summary') || process.env.SUMMARY
-          const body = `### ScanCode License Report\n${summary}\n\nFull JSON results are uploaded as the \`${{ inputs.output-name }}\` artifact.`
-          await github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body
-          })
-      env:
-        SUMMARY: ${{ steps.summary.outputs.summary }}
-
-    # - name: Create output directory
-    #   shell: bash
-    #   run: |
-    #     mkdir -p "${{ inputs.output-name }}"
-
-    # - name: Run ScanCode Scan
-    #   shell: bash
-    #   run: |
-    #     echo "Starting ScanCode scan of: ${{ inputs.scan-path }}"
-    #     scancode --license --copyright --info --package \
-    #              --json "${{ inputs.output-name }}/scancode-results.json" \
-    #              --html "${{ inputs.output-name }}/scancode-results.html" \
-    #              --csv "${{ inputs.output-name }}/scancode-results.csv" \
-    #              --timeout 300 \
-    #              --processes -1 \
-    #              "${{ inputs.scan-path }}"
-
-    # - name: Generate Summary Report
-    #   shell: bash
-    #   run: |
-    #     echo "# ScanCode Results Summary" > "${{ inputs.output-name }}/SUMMARY.md"
-    #     echo "" >> "${{ inputs.output-name }}/SUMMARY.md"
-    #     echo "**Scan Path:** \`${{ inputs.scan-path }}\`" >> "${{ inputs.output-name }}/SUMMARY.md"
-    #     echo "**Scan Date:** $(date)" >> "${{ inputs.output-name }}/SUMMARY.md"
-    #     echo "" >> "${{ inputs.output-name }}/SUMMARY.md"
-        
-    #     # Count files scanned
-    #     FILES_SCANNED=$(jq '.files | length' "${{ inputs.output-name }}/scancode-results.json" 2>/dev/null || echo "0")
-    #     echo "**Files Scanned:** $FILES_SCANNED" >> "${{ inputs.output-name }}/SUMMARY.md"
-        
-    #     # Count unique licenses found
-    #     LICENSES_FOUND=$(jq -r '.files[].licenses[]?.short_name' "${{ inputs.output-name }}/scancode-results.json" 2>/dev/null | sort -u | wc -l || echo "0")
-    #     echo "**Unique Licenses Found:** $LICENSES_FOUND" >> "${{ inputs.output-name }}/SUMMARY.md"
-        
-    #     # Count copyrights found
-    #     COPYRIGHTS_FOUND=$(jq -r '.files[].copyrights[]?.copyright' "${{ inputs.output-name }}/scancode-results.json" 2>/dev/null | wc -l || echo "0")
-    #     echo "**Copyrights Found:** $COPYRIGHTS_FOUND" >> "${{ inputs.output-name }}/SUMMARY.md"
-        
-    #     echo "" >> "${{ inputs.output-name }}/SUMMARY.md"
-    #     echo "## Output Files" >> "${{ inputs.output-name }}/SUMMARY.md"
-    #     echo "- \`scancode-results.json\` - Complete scan results in JSON format" >> "${{ inputs.output-name }}/SUMMARY.md"
-    #     echo "- \`scancode-results.html\` - Human-readable HTML report" >> "${{ inputs.output-name }}/SUMMARY.md"
-    #     echo "- \`scancode-results.csv\` - Tabular data in CSV format" >> "${{ inputs.output-name }}/SUMMARY.md"
-
-    # - name: Upload Scan Results
-    #   uses: actions/upload-artifact@v4
-    #   with:
-    #     name: ${{ inputs.output-name }}
-    #     path: ${{ inputs.output-name }}
-    #     retention-days: 30
-
-    # - name: Display Summary
-    #   shell: bash
-    #   run: |
-    #     echo "=== ScanCode Scan Complete ==="
-    #     cat "${{ inputs.output-name }}/SUMMARY.md"
