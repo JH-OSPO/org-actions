@@ -61,28 +61,28 @@ runs:
       run: |
         RESULTS="${{ inputs.output-name }}/results.json"
         SUMMARY=$(python3 -c "
-          import json
-          import sys
+import json
+import sys
 
-          try:
-              with open('$RESULTS', 'r') as f:
-                  data = json.load(f)
-              
-              licenses = set()
-              for file_info in data.get('files', []):
-                  if file_info.get('licenses'):
-                      for license_info in file_info['licenses']:
-                          if license_info.get('spdx_license_key'):
-                              licenses.add(license_info['spdx_license_key'])
-              
-              if licenses:
-                  print(f'✅ Detected license(s): {', '.join(sorted(licenses))}')
-              else:
-                  print('⚠️ No license detected.')
-          except Exception as e:
-              print(f'❌ Error parsing results: {e}')
-              sys.exit(1)
-          ")
+try:
+    with open('$RESULTS', 'r') as f:
+        data = json.load(f)
+    
+    licenses = set()
+    for file_info in data.get('files', []):
+        if file_info.get('licenses'):
+            for license_info in file_info['licenses']:
+                if license_info.get('spdx_license_key'):
+                    licenses.add(license_info['spdx_license_key'])
+    
+    if licenses:
+        print(f'✅ Detected license(s): {\", \".join(sorted(licenses))}')
+    else:
+        print('⚠️ No license detected.')
+except Exception as e:
+    print(f'❌ Error parsing results: {e}')
+    sys.exit(1)
+")
         echo "summary=$SUMMARY" >> $GITHUB_OUTPUT
 
     - name: Upload Results Artifact
