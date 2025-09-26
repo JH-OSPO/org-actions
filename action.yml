@@ -42,7 +42,7 @@ runs:
       id: license-check
       shell: bash
       run: |
-        python check_licenses.py
+        python ../citation-examples/check_licenses.py
 
     - name: Create or Update Pull Request Comment
       if: github.event_name == 'pull_request'
