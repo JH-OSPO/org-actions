@@ -69,21 +69,20 @@ runs:
         
         print(f"::set-output name=has_licenses::{has_licenses}")
         print(f"::set-output name=comment_body::{comment_body}")
-
     - name: Create or Update Pull Request Comment
       if: github.event_name == 'pull_request'
       uses: actions/github-script@v6
       with:
         script: |
           const commentBody = `${{ steps.license-check.outputs.comment_body }}`
-          const { owner, repo } = github.context.repo;
-          const issue_number = github.event.pull_request.number;
-
+          const pull_request_number = github.event.pull_request.number;
+          const { owner, repo } = github.event.pull_request.base.repo;
+          
           // Check if a previous comment from this bot exists
           const { data: comments } = await github.rest.issues.listComments({
             owner,
             repo,
-            issue_number,
+            issue_number: pull_request_number,
           });
 
           const existingComment = comments.find(
@@ -103,7 +102,7 @@ runs:
             github.rest.issues.createComment({
               owner,
               repo,
-              issue_number,
+              issue_number: pull_request_number,
               body: commentBody
             });
           }
