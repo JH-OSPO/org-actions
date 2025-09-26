@@ -13,7 +13,7 @@ runs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: "3.11"
+        python-version: "3.12.3"
 
     - name: Install ScanCode Toolkit
       shell: bash
@@ -27,29 +27,33 @@ runs:
       run: |
         echo "Running ScanCode license scan on: ${{ inputs.scan-path }}"
         mkdir -p scancode-results
-        scancode -l --json-pp scancode-results/results.json "${{ inputs.scan-path }}"
+        scancode --license --only-findings --json-pp scancode-results/results.json "${{ inputs.scan-path }}" --ignore "*/venv/*"
 
-    - name: Display License Results
-      shell: bash
+    - name: Check for Licenses
+      id: license-check
+      shell: python
       run: |
-        echo "=== ScanCode License Scan Results ==="
-        echo "Scanning completed successfully!"
-        echo ""
-        echo "Results saved to: scancode-results/results.json"
+        import json
         
-        if command -v jq >/dev/null 2>&1; then
-          echo ""
-          echo "License Summary:"
-          LICENSES=$(jq -r '.files[]?.licenses[]?.spdx_license_key // empty' scancode-results/results.json 2>/dev/null | sort -u | grep -v '^$' || echo "")
+        try:
+          with open('scancode-results/results.json', 'r') as f:
+            data = json.load(f)
+            
+          # Look for 'license_detections' at the root level.
+          licenses = data.get('license_detections', [])
           
-          if [ -n "$LICENSES" ]; then
-            echo "✅ Detected licenses:"
-            echo "$LICENSES" | while read license; do
-              echo "  - $license"
-            done
-          else
-            echo "⚠️  No licenses detected in scan results"
-          fi
-        else
-          ls -la scancode-results/results.json
-        fi
+          if licenses:
+            print("Found licenses.")
+            print("Detected licenses:", [lic['license_expression'] for lic in licenses])
+            print("has_licenses=true")
+          else:
+            print("No licenses found.")
+            print("has_licenses=false")
+
+        except FileNotFoundError:
+          print("Error: The results file was not found.")
+          print("has_licenses=false")
+
+        # Set output for the step
+        # This will be used in a later step
+        print(f"::set-output name=has_licenses::{'true' if licenses else 'false'}")
