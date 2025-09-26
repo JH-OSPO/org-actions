@@ -10,6 +10,9 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
@@ -21,7 +24,6 @@ runs:
         echo "Installing ScanCode Toolkit..."
         python -m pip install --upgrade pip
         pip install scancode-toolkit "boolean.py>=4.0" "click==7.1.2"
-
 
     - name: Run ScanCode License Scan
       shell: bash
