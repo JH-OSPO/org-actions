@@ -75,7 +75,7 @@ runs:
       with:
         script: |
           const commentBody = `${{ steps.license-check.outputs.comment_body }}`
-          const pull_request_number = github.context.issue.number;
+          const pull_request_number = github.context.payload.pull_request.number;
           const { owner, repo } = github.context.repo;
           
           // Check if a previous comment from this bot exists
