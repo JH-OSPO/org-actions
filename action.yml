@@ -46,7 +46,16 @@ runs:
 
         with open(output_file, 'r') as f:
             data = json.load(f)
+        
+        # Check if the scan itself returned any results
+        if not data.get('files', []):
+            comment_body = "### ⚠️ ScanCode Check: NO FILES SCANNED\n\n"
+            comment_body += "No files were found to scan, or the scan failed to produce a valid output."
+            print("::set-output name=has_licenses::false")
+            print(f"::set-output name=comment_body::{comment_body}")
+            exit(0)
 
+        # Check for license detections from the `license_detections` array
         licenses = data.get('license_detections', [])
         
         comment_body = ""
@@ -58,7 +67,7 @@ runs:
             comment_body += "The following licenses were detected:\n\n"
             comment_body += "| License Expression | Files |\n"
             comment_body += "|---|---|\n"
-            
+        
             for license_item in licenses:
                 license_expression = license_item['license_expression']
                 file_paths = [match['from_file'] for match in license_item['reference_matches']]
@@ -69,6 +78,7 @@ runs:
         
         print(f"::set-output name=has_licenses::{has_licenses}")
         print(f"::set-output name=comment_body::{comment_body}")
+
     - name: Create or Update Pull Request Comment
       if: github.event_name == 'pull_request'
       uses: actions/github-script@v6
