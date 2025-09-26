@@ -76,13 +76,14 @@ runs:
       with:
         script: |
           const commentBody = `${{ steps.license-check.outputs.comment_body }}`
-          const { repo, issue: { number } } = github.context
+          const { owner, repo } = github.context.repo;
+          const issue_number = github.event.pull_request.number;
 
           // Check if a previous comment from this bot exists
           const { data: comments } = await github.rest.issues.listComments({
-            owner: repo.owner,
-            repo: repo.repo,
-            issue_number: number,
+            owner,
+            repo,
+            issue_number,
           });
 
           const existingComment = comments.find(
@@ -92,17 +93,17 @@ runs:
           if (existingComment) {
             // Update the existing comment
             github.rest.issues.updateComment({
-              owner: repo.owner,
-              repo: repo.repo,
+              owner,
+              repo,
               comment_id: existingComment.id,
               body: commentBody
             });
           } else {
             // Create a new comment
             github.rest.issues.createComment({
-              owner: repo.owner,
-              repo: repo.repo,
-              issue_number: number,
+              owner,
+              repo,
+              issue_number,
               body: commentBody
             });
           }
