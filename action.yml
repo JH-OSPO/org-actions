@@ -40,53 +40,9 @@ runs:
 
     - name: Check for Licenses
       id: license-check
-      shell: python
+      shell: bash
       run: |
-        import json
-        import os
-        
-        output_file = 'scancode-results/results.json'
-        
-        if not os.path.exists(output_file):
-            print("Error: The results file was not found.")
-            print("::set-output name=has_licenses::false")
-            print("::set-output name=comment_body::No scan results file found.")
-            exit(1)
-
-        with open(output_file, 'r') as f:
-            data = json.load(f)
-        
-        # Check if the scan itself returned any results
-        if not data.get('files', []):
-            comment_body = "### ⚠️ ScanCode Check: NO FILES SCANNED\n\n"
-            comment_body += "No files were found to scan, or the scan failed to produce a valid output."
-            print("::set-output name=has_licenses::false")
-            print(f"::set-output name=comment_body::{comment_body}")
-            exit(0)
-
-        # Check for license detections from the `license_detections` array
-        licenses = data.get('license_detections', [])
-        
-        comment_body = ""
-        has_licenses = "false"
-        
-        if licenses:
-            has_licenses = "true"
-            comment_body += "### ✅ ScanCode License Check: SUCCESS\n\n"
-            comment_body += "The following licenses were detected:\n\n"
-            comment_body += "| License Expression | Files |\n"
-            comment_body += "|---|---|\n"
-        
-            for license_item in licenses:
-                license_expression = license_item['license_expression']
-                file_paths = [match['from_file'] for match in license_item['reference_matches']]
-                comment_body += f"| `{license_expression}` | `{', '.join(file_paths)}` |\n"
-        else:
-            comment_body += "### ⚠️ ScanCode License Check: NO LICENSES DETECTED\n\n"
-            comment_body += "No license information was found in the scanned files."
-        
-        print(f"::set-output name=has_licenses::{has_licenses}")
-        print(f"::set-output name=comment_body::{comment_body}")
+        python check_licenses.py
 
     - name: Create or Update Pull Request Comment
       if: github.event_name == 'pull_request'
