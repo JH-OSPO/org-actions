@@ -22,12 +22,19 @@ runs:
         python -m pip install --upgrade pip
         pip install scancode-toolkit "boolean.py>=4.0" "click==7.1.2"
 
+
     - name: Run ScanCode License Scan
       shell: bash
       run: |
         echo "Running ScanCode license scan on: ${{ inputs.scan-path }}"
         mkdir -p scancode-results
         scancode --license --only-findings --json-pp scancode-results/results.json "${{ inputs.scan-path }}" --ignore "*/venv/*"
+
+    - name: Debug ScanCode Output
+      shell: bash
+      run: |
+        echo "--- ScanCode JSON Output ---"
+        cat scancode-results/results.json || echo "No results.json file found."
 
     - name: Check for Licenses
       id: license-check
