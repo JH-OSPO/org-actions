@@ -62,7 +62,8 @@ runs:
             return [], [], data # Simplified: only return data for identifier checking
 
         def find_swhids_in_data(obj):
-            swh_pattern = re.compile(r"swh:1:[a-z]{3}:[0-9a-fA-F:]+", re.IGNORECASE)
+            # More comprehensive SWHID pattern
+            swh_pattern = re.compile(r"swh:1:[a-z]{3}:[0-9a-fA-F]{40}(?:;[a-z]+=[^;]+)*", re.IGNORECASE)
             found = set()
             def _scan(o):
                 if o is None: return
@@ -70,7 +71,10 @@ runs:
                     for m in swh_pattern.findall(o): found.add(m)
                 elif isinstance(o, dict):
                     for k, v in o.items():
-                        if isinstance(k, str) and 'swh' in k.lower() and isinstance(v, str): found.add(v)
+                        if isinstance(k, str) and ('swh' in k.lower() or 'swhid' in k.lower()) and isinstance(v, str):
+                            # Validate it's a proper SWHID format before adding
+                            if swh_pattern.match(v.strip()):
+                                found.add(v.strip())
                         _scan(v)
                 elif isinstance(o, list):
                     for item in o: _scan(item)
@@ -83,22 +87,40 @@ runs:
             return list(found)
 
         def find_dois_in_data(obj):
-            doi_pattern = re.compile(r"10\.\d{4,9}/[\w.\-;/()]+", re.IGNORECASE)
+            # More comprehensive DOI pattern that handles various formats
+            doi_pattern = re.compile(r"(?:doi:|DOI:)?\s*(?:https?://(dx\.)?doi\.org/)?(10\.\d{4,9}/[^\s]+)", re.IGNORECASE)
             found = set()
             def _scan(o):
                 if o is None: return
                 if isinstance(o, str):
-                    for m in doi_pattern.findall(o): found.add(m)
+                    # Clean up DOI strings and extract just the DOI part
+                    matches = doi_pattern.findall(o)
+                    for match in matches:
+                        if isinstance(match, tuple):
+                            # Get the DOI part (last group in the regex)
+                            doi = match[-1] if match else o
+                        else:
+                            doi = match
+                        found.add(doi.strip())
                 elif isinstance(o, dict):
                     for k, v in o.items():
-                        if isinstance(k, str) and 'doi' in k.lower() and isinstance(v, str): found.add(v)
+                        if isinstance(k, str) and 'doi' in k.lower() and isinstance(v, str):
+                            # Clean DOI value
+                            clean_doi = re.sub(r'^(doi:|DOI:|https?://(dx\.)?doi\.org/)', '', v.strip())
+                            found.add(clean_doi)
                         _scan(v)
                 elif isinstance(o, list):
                     for item in o: _scan(item)
                 else:
                     try:
                         s = str(o)
-                        for m in doi_pattern.findall(s): found.add(m)
+                        matches = doi_pattern.findall(s)
+                        for match in matches:
+                            if isinstance(match, tuple):
+                                doi = match[-1] if match else s
+                            else:
+                                doi = match
+                            found.add(doi.strip())
                     except Exception: pass
             _scan(obj)
             return list(found)
@@ -107,18 +129,29 @@ runs:
             dois = find_dois_in_data(data)
             swhids = find_swhids_in_data(data)
             
-            identifiers = data.get('identifiers') if isinstance(data, dict) else None
-            
-            if identifiers is not None and isinstance(identifiers, list):
-                for ident in identifiers:
-                    if isinstance(ident, dict):
-                         id_type = ident.get('type')
-                         id_value = ident.get('value')
-                         # Add identifiers from the official list if not already found by regex
-                         if isinstance(id_type, str) and id_type.lower() == 'doi' and id_value not in dois:
-                             dois.append(id_value)
-                         if isinstance(id_type, str) and id_type.lower() in ('swh', 'swhid') and id_value not in swhids:
-                             swhids.append(id_value)
+            # Also check specific fields that commonly contain identifiers
+            if isinstance(data, dict):
+                # Check common DOI fields
+                for field in ['doi', 'DOI', 'url', 'repository-code']:
+                    if field in data and isinstance(data[field], str):
+                        field_dois = find_dois_in_data(data[field])
+                        dois.extend([doi for doi in field_dois if doi not in dois])
+                
+                # Check identifiers section
+                identifiers = data.get('identifiers')
+                if identifiers is not None and isinstance(identifiers, list):
+                    for ident in identifiers:
+                        if isinstance(ident, dict):
+                             id_type = ident.get('type')
+                             id_value = ident.get('value')
+                             # Add identifiers from the official list if not already found by regex
+                             if isinstance(id_type, str) and isinstance(id_value, str):
+                                 if id_type.lower() == 'doi':
+                                     clean_doi = re.sub(r'^(doi:|DOI:|https?://(dx\.)?doi\.org/)', '', id_value.strip())
+                                     if clean_doi not in dois:
+                                         dois.append(clean_doi)
+                                 elif id_type.lower() in ('swh', 'swhid') and id_value not in swhids:
+                                     swhids.append(id_value.strip())
             
             return {'dois': dois, 'swhids': swhids}
 
@@ -147,12 +180,18 @@ runs:
                     comment += f"- **Title:** `{citation_title}`\n"
                 
                 # Highlighted DOI Output
-                dois_str = f"**`{', '.join(filtered['dois'])}`**" if filtered.get('dois') else "`None`"
-                comment += f"- **DOIs Found:** {dois_str}\n"
+                if filtered.get('dois'):
+                    dois_str = f"**`{', '.join(filtered['dois'])}`**"
+                    comment += f"- **DOIs Found:** {dois_str}\n"
+                else:
+                    comment += f"- **DOIs Found:** `None`\n"
 
-                # Highlighted SWHID Output
-                swhids_str = f"**`{', '.join(filtered['swhids'])}`**" if filtered.get('swhids') else "`None`"
-                comment += f"- **SWHIDs Found:** {swhids_str}\n"
+                # Highlighted SWHID Output  
+                if filtered.get('swhids'):
+                    swhids_str = f"**`{', '.join(filtered['swhids'])}`**"
+                    comment += f"- **SWHIDs Found:** {swhids_str}\n"
+                else:
+                    comment += f"- **SWHIDs Found:** `None`\n"
 
                 if missing or author_issues:
                      comment += "\n⚠️ **Note on Structure:** The file has basic parsing errors or missing required keys."
