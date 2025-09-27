@@ -6,7 +6,6 @@ inputs:
     description: "Path inside the target repo to scan"
     required: false
     default: "."
-  # Removed github-token as we are checking the local file now
 
 runs:
   using: "composite"
@@ -51,8 +50,8 @@ runs:
         import yaml
         import re
         
-        # --- CITATION.cff HELPER FUNCTIONS (Simplified for local file check) ---
-
+        # --- CITATION.cff HELPER FUNCTIONS ---
+        
         def check_citation_yaml(decoded):
             try:
                 data = yaml.safe_load(decoded)
@@ -60,10 +59,7 @@ runs:
                 return ['__parse_error__'], [f'YAML parse error: {e}'], None
             if not isinstance(data, dict):
                 return ['__not_mapping__'], ['CITATION content did not parse to a mapping (dict)'], data
-            
-            # Simplified for just checking identifier extraction
-            return [], [], data
-
+            return [], [], data # Simplified: only return data for identifier checking
 
         def find_swhids_in_data(obj):
             swh_pattern = re.compile(r"swh:1:[a-z]{3}:[0-9a-fA-F:]+", re.IGNORECASE)
@@ -85,7 +81,6 @@ runs:
                     except Exception: pass
             _scan(obj)
             return list(found)
-
 
         def find_dois_in_data(obj):
             doi_pattern = re.compile(r"10\.\d{4,9}/[\w.\-;/()]+", re.IGNORECASE)
@@ -109,68 +104,64 @@ runs:
             return list(found)
 
         def check_identifiers(data):
-            issues = []
-            identifiers = data.get('identifiers') if isinstance(data, dict) else None
             dois = find_dois_in_data(data)
             swhids = find_swhids_in_data(data)
             
-            if identifiers is not None:
-                if not isinstance(identifiers, list):
-                    issues.append('identifiers must be a list')
-                else:
-                    for ident in identifiers:
-                        if isinstance(ident, dict):
-                             id_type = ident.get('type')
-                             id_value = ident.get('value')
-                             if isinstance(id_type, str) and id_type.lower() == 'doi' and id_value not in dois:
-                                 dois.append(id_value)
-                             if isinstance(id_type, str) and id_type.lower() in ('swh', 'swhid') and id_value not in swhids:
-                                 swhids.append(id_value)
+            identifiers = data.get('identifiers') if isinstance(data, dict) else None
+            
+            if identifiers is not None and isinstance(identifiers, list):
+                for ident in identifiers:
+                    if isinstance(ident, dict):
+                         id_type = ident.get('type')
+                         id_value = ident.get('value')
+                         # Add identifiers from the official list if not already found by regex
+                         if isinstance(id_type, str) and id_type.lower() == 'doi' and id_value not in dois:
+                             dois.append(id_value)
+                         if isinstance(id_type, str) and id_type.lower() in ('swh', 'swhid') and id_value not in swhids:
+                             swhids.append(id_value)
             
             return {'dois': dois, 'swhids': swhids}
 
         def check_local_citation_file():
             citation_file = 'CITATION.cff'
+            comment = "### 📄 CITATION.cff Check\n\n"
+
             if not os.path.exists(citation_file):
-                return {"found": False, "comment": "### 📄 CITATION.cff Check\n\n❌ **CITATION.cff file not found.** Consider adding one to make your software citable."}
+                return {"found": False, "comment": f"{comment}❌ **CITATION.cff file not found.** Consider adding one to make your software citable."}
 
             try:
                 with open(citation_file, 'r', encoding='utf-8') as f:
                     decoded = f.read()
             except Exception as e:
-                return {"found": True, "comment": f"### 📄 CITATION.cff Check\n\n⚠️ **Error reading CITATION.cff:** {e}"}
+                return {"found": True, "comment": f"{comment}⚠️ **Error reading CITATION.cff:** {e}"}
 
             missing, author_issues, parsed = check_citation_yaml(decoded)
             
-            comment = "### 📄 CITATION.cff Check\n\n"
-            
-            if missing or author_issues:
-                # Basic check for parse errors/structure
-                comment += "⚠️ **File Structure Issues Found** ⚠️\n\n"
-                if missing: comment += f"- **YAML Parse Error:** {', '.join(missing)}\n"
-                if author_issues: comment += f"- **Author Issues:** {'; '.join(author_issues)}\n"
-            
-            filtered = {'dois': [], 'swhids': []}
             if parsed:
                 filtered = check_identifiers(parsed)
                 citation_title = parsed.get('title', 'N/A')
-                comment += f"✅ **File Found and Parsed.**\n- **Title:** `{citation_title}`\n"
+                
+                comment += f"✅ **File Found and Parsed.**\n"
+                
+                if citation_title != 'N/A':
+                    comment += f"- **Title:** `{citation_title}`\n"
+                
+                # Highlighted DOI Output
+                dois_str = f"**`{', '.join(filtered['dois'])}`**" if filtered.get('dois') else "`None`"
+                comment += f"- **DOIs Found:** {dois_str}\n"
+
+                # Highlighted SWHID Output
+                swhids_str = f"**`{', '.join(filtered['swhids'])}`**" if filtered.get('swhids') else "`None`"
+                comment += f"- **SWHIDs Found:** {swhids_str}\n"
+
+                if missing or author_issues:
+                     comment += "\n⚠️ **Note on Structure:** The file has basic parsing errors or missing required keys."
             else:
-                 comment += "⚠️ **File Found but could not be parsed as YAML.**\n"
+                 comment += "⚠️ **File Found but could not be parsed as YAML.**"
             
-            if filtered.get('dois'):
-                comment += f"- **DOIs Found:** `{', '.join(filtered['dois'])}`\n"
-            else:
-                comment += "- **DOIs Found:** `None`\n"
-
-            if filtered.get('swhids'):
-                comment += f"- **SWHIDs Found:** `{', '.join(filtered['swhids'])}`\n"
-            else:
-                comment += "- **SWHIDs Found:** `None`\n"
-
             return {"found": True, "comment": comment}
 
-        # --- License Check Logic ---
+        # --- License Check Logic (Unchanged, for context) ---
         
         output_file = 'scancode-results/results.json'
         license_comment_body = ""
