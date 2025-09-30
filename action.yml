@@ -58,8 +58,18 @@ runs:
       run: |
         import json
         import os
+        import urllib.request
         
         output_file = 'scancode-results/results.json'
+        
+        # Fetch SPDX license list
+        try:
+            with urllib.request.urlopen('https://raw.githubusercontent.com/spdx/license-list-data/master/json/licenses.json') as response:
+                spdx_data = json.load(response)
+                license_names = {lic['licenseId']: lic['name'] for lic in spdx_data['licenses']}
+        except Exception as e:
+            print(f"Warning: Could not fetch SPDX license list: {e}")
+            license_names = {}
         
         if not os.path.exists(output_file):
             print("Error: The results file was not found.")
@@ -70,7 +80,6 @@ runs:
         with open(output_file, 'r') as f:
             data = json.load(f)
         
-        # Check if the scan itself returned any results
         if not data.get('files', []):
             comment_body = "### ⚠️ ScanCode Check: NO FILES SCANNED\n\n"
             comment_body += "No files were found to scan, or the scan failed to produce a valid output."
@@ -78,7 +87,6 @@ runs:
             print(f"::set-output name=comment_body::{comment_body}")
             exit(0)
 
-        # Check for license detections from the `license_detections` array
         licenses = data.get('license_detections', [])
         
         comment_body = ""
@@ -88,20 +96,25 @@ runs:
             has_licenses = "true"
             comment_body += "### ✅ ScanCode License Check: SUCCESS\n\n"
             comment_body += "The following licenses were detected:\n\n"
-            comment_body += "| License Expression | Files |\n"
-            comment_body += "|---|---|\n"
+            comment_body += "| License Name | SPDX ID | Files |\n"
+            comment_body += "|---|---|---|\n"
         
             for license_item in licenses:
                 license_expression = license_item['license_expression']
+                spdx_id = license_item['license_expression_spdx']
+                
+                # Get full license name from SPDX data
+                license_name = license_names.get(spdx_id, spdx_id)
+                
                 file_paths = [match['from_file'] for match in license_item['reference_matches']]
-                comment_body += f"| `{license_expression}` | `{', '.join(file_paths)}` |\n"
+                comment_body += f"| {license_name} | `{spdx_id}` | `{', '.join(file_paths)}` |\n"
         else:
             comment_body += "### ⚠️ ScanCode License Check: NO LICENSES DETECTED\n\n"
             comment_body += "No license information was found in the scanned files."
         
         print(f"::set-output name=has_licenses::{has_licenses}")
         print(f"::set-output name=comment_body::{comment_body}")
-    
+
     - name: Check Keys and Extract Values
       id: check
       shell: python
