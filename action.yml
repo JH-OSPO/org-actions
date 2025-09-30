@@ -6,6 +6,18 @@ inputs:
     description: "Path inside the target repo to scan"
     required: false
     default: "."
+  file-path:
+    description: "The path to check for citation and swhid"
+    required: true
+    default: "./citation.cff"
+
+outputs:
+  doi-value:
+    description: 'The value of the "doi" key, or an empty string if not found.'
+    value: ${{ steps.check.outputs.doi-value }}
+  swhid-value:
+    description: 'The value of the "swhid" key, or an empty string if not found.'
+    value: ${{ steps.check.outputs.swhid-value }}
 
 runs:
   using: "composite"
@@ -24,7 +36,15 @@ runs:
         echo "Installing ScanCode Toolkit..."
         python -m pip install --upgrade pip
         pip install scancode-toolkit "boolean.py>=4.0" "click==7.1.2"
-
+    
+    - name: Install yq
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y wget
+        wget https://github.com/mikefarah/yq/releases/download/v4.44.2/yq_linux_amd64 -O /usr/bin/yq
+        sudo chmod +x /usr/bin/yq
+    
     - name: Run ScanCode License Scan
       shell: bash
       run: |
@@ -87,7 +107,39 @@ runs:
         
         print(f"::set-output name=has_licenses::{has_licenses}")
         print(f"::set-output name=comment_body::{comment_body}")
+    
+    - name: Check Keys and Extract Values
+      id: check
+      shell: bash
+      run: |
+        CFF_FILE="citation.cff"
+        extract_value() {
+          local KEY_TYPE="$1"
+          local FILE="$2"
+          # Use "streq" for robust string comparison in yq
+          yq '.identifiers[] | select(.type == "'"$KEY_TYPE"'") | .value' "$FILE" 2>/dev/null
+        }
 
+        DOI_VALUE=$(extract_value "doi" "$CFF_FILE" || echo "")
+        
+        if [ -n "$DOI_VALUE" ]; then
+          echo "Found DOI value: $DOI_VALUE"
+          echo "doi-value=$DOI_VALUE" >> $GITHUB_OUTPUT
+        else
+          echo "DOI identifier not found."
+          echo "doi-value=" >> $GITHUB_OUTPUT
+        fi
+
+        SWHID_VALUE=$(extract_value "swhid" "$CFF_FILE" || echo "")
+        
+        if [ -n "$SWHID_VALUE" ]; then
+          echo "Found SWHID value: $SWHID_VALUE"
+          echo "swhid-value=$SWHID_VALUE" >> $GITHUB_OUTPUT
+        else
+          echo "SWHID identifier not found."
+          echo "swhid-value=" >> $GITHUB_OUTPUT
+        fi
+    
     - name: Create or Update Pull Request Comment
       if: github.event_name == 'pull_request'
       uses: actions/github-script@v6
@@ -125,3 +177,4 @@ runs:
               body: commentBody
             });
           }
+    
