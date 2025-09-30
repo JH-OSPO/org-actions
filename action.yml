@@ -109,7 +109,7 @@ runs:
         import yaml
         import os
         
-        cff_file = "citation.cff"
+        cff_file = "${{ inputs.file-path }}"
         doi_value = ""
         swhid_value = ""
         
@@ -135,6 +135,9 @@ runs:
                     print("SWHID identifier not found.")
             else:
                 print(f"File {cff_file} not found.")
+                print("Current directory contents:")
+                for item in os.listdir('.'):
+                    print(f"  - {item}")
         
         except Exception as e:
             print(f"Error parsing {cff_file}: {e}")
