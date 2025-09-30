@@ -151,7 +151,26 @@ runs:
       uses: actions/github-script@v6
       with:
         script: |
-          const commentBody = `${{ steps.license-check.outputs.comment_body }}`
+          const licenseBody = `${{ steps.license-check.outputs.comment_body }}`;
+          const doiValue = `${{ steps.check.outputs.doi-value }}`;
+          const swhidValue = `${{ steps.check.outputs.swhid-value }}`;
+          
+          // Build citation information section
+          let citationSection = "\n\n### 📄 Citation Information\n\n";
+          
+          if (doiValue) {
+            citationSection += `**DOI:** \`${doiValue}\`\n`;
+          } else {
+            citationSection += "**DOI:** ❌ Not found\n";
+          }
+          
+          if (swhidValue) {
+            citationSection += `**SWHID:** \`${swhidValue}\`\n`;
+          } else {
+            citationSection += "**SWHID:** ❌ Not found\n";
+          }
+          
+          const commentBody = licenseBody + citationSection;
           const pull_request_number = context.issue.number;
           const { owner, repo } = context.repo;
           
