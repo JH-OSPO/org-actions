@@ -37,8 +37,6 @@ runs:
         python -m pip install --upgrade pip
         pip install scancode-toolkit "boolean.py>=4.0" "click==7.1.2"
     
-
-    
     - name: Run ScanCode License Scan
       shell: bash
       run: |
@@ -67,6 +65,7 @@ runs:
             with urllib.request.urlopen('https://raw.githubusercontent.com/spdx/license-list-data/master/json/licenses.json') as response:
                 spdx_data = json.load(response)
                 license_names = {lic['licenseId']: lic['name'] for lic in spdx_data['licenses']}
+            print(f"Loaded {len(license_names)} SPDX license names")
         except Exception as e:
             print(f"Warning: Could not fetch SPDX license list: {e}")
             license_names = {}
@@ -80,13 +79,16 @@ runs:
         with open(output_file, 'r') as f:
             data = json.load(f)
         
+        # Check if the scan itself returned any results
         if not data.get('files', []):
-            comment_body = "### ⚠️ ScanCode Check: NO FILES SCANNED\n\n"
+            comment_body = "<!-- scancode-license-check -->\n"
+            comment_body += "### ⚠️ ScanCode Check: NO FILES SCANNED\n\n"
             comment_body += "No files were found to scan, or the scan failed to produce a valid output."
             print("::set-output name=has_licenses::false")
             print(f"::set-output name=comment_body::{comment_body}")
             exit(0)
 
+        # Check for license detections from the `license_detections` array
         licenses = data.get('license_detections', [])
         
         comment_body = ""
@@ -94,6 +96,7 @@ runs:
         
         if licenses:
             has_licenses = "true"
+            comment_body += "<!-- scancode-license-check -->\n"
             comment_body += "### ✅ ScanCode License Check: SUCCESS\n\n"
             comment_body += "The following licenses were detected:\n\n"
             comment_body += "| License Name | SPDX ID | Files |\n"
@@ -109,12 +112,13 @@ runs:
                 file_paths = [match['from_file'] for match in license_item['reference_matches']]
                 comment_body += f"| {license_name} | `{spdx_id}` | `{', '.join(file_paths)}` |\n"
         else:
+            comment_body += "<!-- scancode-license-check -->\n"
             comment_body += "### ⚠️ ScanCode License Check: NO LICENSES DETECTED\n\n"
             comment_body += "No license information was found in the scanned files."
         
         print(f"::set-output name=has_licenses::{has_licenses}")
         print(f"::set-output name=comment_body::{comment_body}")
-
+    
     - name: Check Keys and Extract Values
       id: check
       shell: python
@@ -195,7 +199,7 @@ runs:
           });
 
           const existingComment = comments.find(
-            (comment) => comment.body.includes('### ScanCode License Check')
+            (comment) => comment.body.includes('<!-- scancode-license-check -->')
           );
 
           if (existingComment) {
@@ -215,4 +219,3 @@ runs:
               body: commentBody
             });
           }
-    
