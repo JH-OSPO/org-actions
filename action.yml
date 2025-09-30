@@ -9,7 +9,7 @@ inputs:
   file-path:
     description: "The path to check for citation and swhid"
     required: true
-    default: "./citation.cff"
+    default: "./CITATION.cff"
 
 outputs:
   doi-value:
