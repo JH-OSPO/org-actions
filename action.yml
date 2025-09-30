@@ -1,5 +1,5 @@
-name: "ScanCode License and Citation Scanner"
-description: "Scans for licenses and checks for CITATION.cff, DOI, and SWHID."
+name: "ScanCode License Scanner"
+description: "Simple ScanCode toolkit runner that scans for licenses and shows results"
 author: "Your Name"
 inputs:
   scan-path:
@@ -18,15 +18,12 @@ runs:
       with:
         python-version: "3.12.3"
 
-    - name: Install ScanCode Toolkit and Dependencies
+    - name: Install ScanCode Toolkit
       shell: bash
       run: |
-        echo "Installing dependencies..."
+        echo "Installing ScanCode Toolkit..."
         python -m pip install --upgrade pip
-        # ScanCode dependencies
         pip install scancode-toolkit "boolean.py>=4.0" "click==7.1.2"
-        # Dependency for reading and parsing CITATION.cff
-        pip install pyyaml
 
     - name: Run ScanCode License Scan
       shell: bash
@@ -41,212 +38,62 @@ runs:
         echo "--- ScanCode JSON Output ---"
         cat scancode-results/results.json || echo "No results.json file found."
 
-    - name: Check for Licenses and Citation
-      id: check-results
+    - name: Check for Licenses
+      id: license-check
       shell: python
       run: |
         import json
         import os
-        import yaml
-        import re
-        
-        # --- CITATION.cff HELPER FUNCTIONS ---
-        
-        def check_citation_yaml(decoded):
-            try:
-                data = yaml.safe_load(decoded)
-            except Exception as e:
-                return ['__parse_error__'], [f'YAML parse error: {e}'], None
-            if not isinstance(data, dict):
-                return ['__not_mapping__'], ['CITATION content did not parse to a mapping (dict)'], data
-            return [], [], data # Simplified: only return data for identifier checking
-
-        def find_swhids_in_data(obj):
-            # More comprehensive SWHID pattern
-            swh_pattern = re.compile(r"swh:1:[a-z]{3}:[0-9a-fA-F]{40}(?:;[a-z]+=[^;]+)*", re.IGNORECASE)
-            found = set()
-            def _scan(o):
-                if o is None: return
-                if isinstance(o, str):
-                    for m in swh_pattern.findall(o): found.add(m)
-                elif isinstance(o, dict):
-                    for k, v in o.items():
-                        if isinstance(k, str) and ('swh' in k.lower() or 'swhid' in k.lower()) and isinstance(v, str):
-                            # Validate it's a proper SWHID format before adding
-                            if swh_pattern.match(v.strip()):
-                                found.add(v.strip())
-                        _scan(v)
-                elif isinstance(o, list):
-                    for item in o: _scan(item)
-                else:
-                    try:
-                        s = str(o)
-                        for m in swh_pattern.findall(s): found.add(m)
-                    except Exception: pass
-            _scan(obj)
-            return list(found)
-
-        def find_dois_in_data(obj):
-            # More comprehensive DOI pattern that handles various formats
-            doi_pattern = re.compile(r"(?:doi:|DOI:)?\s*(?:https?://(dx\.)?doi\.org/)?(10\.\d{4,9}/[^\s]+)", re.IGNORECASE)
-            found = set()
-            def _scan(o):
-                if o is None: return
-                if isinstance(o, str):
-                    # Clean up DOI strings and extract just the DOI part
-                    matches = doi_pattern.findall(o)
-                    for match in matches:
-                        if isinstance(match, tuple):
-                            # Get the DOI part (last group in the regex)
-                            doi = match[-1] if match else o
-                        else:
-                            doi = match
-                        found.add(doi.strip())
-                elif isinstance(o, dict):
-                    for k, v in o.items():
-                        if isinstance(k, str) and 'doi' in k.lower() and isinstance(v, str):
-                            # Clean DOI value
-                            clean_doi = re.sub(r'^(doi:|DOI:|https?://(dx\.)?doi\.org/)', '', v.strip())
-                            found.add(clean_doi)
-                        _scan(v)
-                elif isinstance(o, list):
-                    for item in o: _scan(item)
-                else:
-                    try:
-                        s = str(o)
-                        matches = doi_pattern.findall(s)
-                        for match in matches:
-                            if isinstance(match, tuple):
-                                doi = match[-1] if match else s
-                            else:
-                                doi = match
-                            found.add(doi.strip())
-                    except Exception: pass
-            _scan(obj)
-            return list(found)
-
-        def check_identifiers(data):
-            dois = find_dois_in_data(data)
-            swhids = find_swhids_in_data(data)
-            
-            # Also check specific fields that commonly contain identifiers
-            if isinstance(data, dict):
-                # Check common DOI fields
-                for field in ['doi', 'DOI', 'url', 'repository-code']:
-                    if field in data and isinstance(data[field], str):
-                        field_dois = find_dois_in_data(data[field])
-                        dois.extend([doi for doi in field_dois if doi not in dois])
-                
-                # Check identifiers section
-                identifiers = data.get('identifiers')
-                if identifiers is not None and isinstance(identifiers, list):
-                    for ident in identifiers:
-                        if isinstance(ident, dict):
-                             id_type = ident.get('type')
-                             id_value = ident.get('value')
-                             # Add identifiers from the official list if not already found by regex
-                             if isinstance(id_type, str) and isinstance(id_value, str):
-                                 if id_type.lower() == 'doi':
-                                     clean_doi = re.sub(r'^(doi:|DOI:|https?://(dx\.)?doi\.org/)', '', id_value.strip())
-                                     if clean_doi not in dois:
-                                         dois.append(clean_doi)
-                                 elif id_type.lower() in ('swh', 'swhid') and id_value not in swhids:
-                                     swhids.append(id_value.strip())
-            
-            return {'dois': dois, 'swhids': swhids}
-
-        def check_local_citation_file():
-            citation_file = 'CITATION.cff'
-            comment = "### 📄 CITATION.cff Check\n\n"
-
-            if not os.path.exists(citation_file):
-                return {"found": False, "comment": f"{comment}❌ **CITATION.cff file not found.** Consider adding one to make your software citable."}
-
-            try:
-                with open(citation_file, 'r', encoding='utf-8') as f:
-                    decoded = f.read()
-            except Exception as e:
-                return {"found": True, "comment": f"{comment}⚠️ **Error reading CITATION.cff:** {e}"}
-
-            missing, author_issues, parsed = check_citation_yaml(decoded)
-            
-            if parsed:
-                filtered = check_identifiers(parsed)
-                citation_title = parsed.get('title', 'N/A')
-                
-                comment += f"✅ **File Found and Parsed.**\n"
-                
-                if citation_title != 'N/A':
-                    comment += f"- **Title:** `{citation_title}`\n"
-                
-                # Highlighted DOI Output
-                if filtered.get('dois'):
-                    dois_str = f"**`{', '.join(filtered['dois'])}`**"
-                    comment += f"- **DOIs Found:** {dois_str}\n"
-                else:
-                    comment += f"- **DOIs Found:** `None`\n"
-
-                # Highlighted SWHID Output  
-                if filtered.get('swhids'):
-                    swhids_str = f"**`{', '.join(filtered['swhids'])}`**"
-                    comment += f"- **SWHIDs Found:** {swhids_str}\n"
-                else:
-                    comment += f"- **SWHIDs Found:** `None`\n"
-
-                if missing or author_issues:
-                     comment += "\n⚠️ **Note on Structure:** The file has basic parsing errors or missing required keys."
-            else:
-                 comment += "⚠️ **File Found but could not be parsed as YAML.**"
-            
-            return {"found": True, "comment": comment}
-
-        # --- License Check Logic (Unchanged, for context) ---
         
         output_file = 'scancode-results/results.json'
-        license_comment_body = ""
-        has_licenses = "false"
         
         if not os.path.exists(output_file):
-            license_comment_body = "### ⚠️ ScanCode License Check: FAILED\n\nNo scan results file found for license check."
+            print("Error: The results file was not found.")
+            print("::set-output name=has_licenses::false")
+            print("::set-output name=comment_body::No scan results file found.")
+            exit(1)
+
+        with open(output_file, 'r') as f:
+            data = json.load(f)
+        
+        # Check if the scan itself returned any results
+        if not data.get('files', []):
+            comment_body = "### ⚠️ ScanCode Check: NO FILES SCANNED\n\n"
+            comment_body += "No files were found to scan, or the scan failed to produce a valid output."
+            print("::set-output name=has_licenses::false")
+            print(f"::set-output name=comment_body::{comment_body}")
+            exit(0)
+
+        # Check for license detections from the `license_detections` array
+        licenses = data.get('license_detections', [])
+        
+        comment_body = ""
+        has_licenses = "false"
+        
+        if licenses:
+            has_licenses = "true"
+            comment_body += "### ✅ ScanCode License Check: SUCCESS\n\n"
+            comment_body += "The following licenses were detected:\n\n"
+            comment_body += "| License Expression | Files |\n"
+            comment_body += "|---|---|\n"
+        
+            for license_item in licenses:
+                license_expression = license_item['license_expression']
+                file_paths = [match['from_file'] for match in license_item['reference_matches']]
+                comment_body += f"| `{license_expression}` | `{', '.join(file_paths)}` |\n"
         else:
-            with open(output_file, 'r') as f:
-                data = json.load(f)
-
-            if not data.get('files', []):
-                license_comment_body = "### ⚠️ ScanCode License Check: NO FILES SCANNED\n\nNo files were found to scan, or the scan failed to produce a valid output."
-            else:
-                licenses = data.get('license_detections', [])
-                if licenses:
-                    has_licenses = "true"
-                    license_comment_body += "### ✅ ScanCode License Check: SUCCESS\n\nThe following licenses were detected:\n\n"
-                    license_comment_body += "| License Expression | Files |\n"
-                    license_comment_body += "|---|---|\n"
-                    for license_item in licenses:
-                        license_expression = license_item['license_expression']
-                        file_paths = [match['from_file'] for match in license_item['reference_matches']]
-                        license_comment_body += f"| `{license_expression}` | `{', '.join(file_paths)}` |\n"
-                else:
-                    license_comment_body += "### ⚠️ ScanCode License Check: NO LICENSES DETECTED\n\nNo license information was found in the scanned files."
+            comment_body += "### ⚠️ ScanCode License Check: NO LICENSES DETECTED\n\n"
+            comment_body += "No license information was found in the scanned files."
         
-        # Set outputs for license check
         print(f"::set-output name=has_licenses::{has_licenses}")
-        print(f"::set-output name=license_comment_body::{license_comment_body}")
-        
-        # --- Run Citation Check ---
-        citation_info = check_local_citation_file()
-        print(f"::set-output name=citation_comment_body::{citation_info['comment']}")
-
+        print(f"::set-output name=comment_body::{comment_body}")
 
     - name: Create or Update Pull Request Comment
       if: github.event_name == 'pull_request'
       uses: actions/github-script@v6
       with:
         script: |
-          const licenseComment = `${{ steps.check-results.outputs.license_comment_body }}`
-          const citationComment = `${{ steps.check-results.outputs.citation_comment_body }}`
-          
-          const fullCommentBody = `${licenseComment}\n\n---\n\n${citationComment}`
-          
+          const commentBody = `${{ steps.license-check.outputs.comment_body }}`
           const pull_request_number = context.issue.number;
           const { owner, repo } = context.repo;
           
@@ -258,7 +105,7 @@ runs:
           });
 
           const existingComment = comments.find(
-            (comment) => comment.body.includes('### ScanCode License Check') || comment.body.includes('### 📄 CITATION.cff Check')
+            (comment) => comment.body.includes('### ScanCode License Check')
           );
 
           if (existingComment) {
@@ -267,7 +114,7 @@ runs:
               owner,
               repo,
               comment_id: existingComment.id,
-              body: fullCommentBody
+              body: commentBody
             });
           } else {
             // Create a new comment
@@ -275,6 +122,6 @@ runs:
               owner,
               repo,
               issue_number: pull_request_number,
-              body: fullCommentBody
+              body: commentBody
             });
           }
