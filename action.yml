@@ -37,6 +37,8 @@ runs:
         python -m pip install --upgrade pip
         pip install scancode-toolkit "boolean.py>=4.0" "click==7.1.2"
     
+
+    
     - name: Run ScanCode License Scan
       shell: bash
       run: |
@@ -49,46 +51,34 @@ runs:
       run: |
         echo "--- ScanCode JSON Output ---"
         cat scancode-results/results.json || echo "No results.json file found."
-    
+
     - name: Check for Licenses
       id: license-check
       shell: python
       run: |
         import json
         import os
-        import urllib.request
         
         output_file = 'scancode-results/results.json'
         
-        try:
-            with urllib.request.urlopen('https://raw.githubusercontent.com/spdx/license-list-data/master/json/licenses.json') as response:
-                spdx_data = json.load(response)
-                license_names = {lic['licenseId']: lic['name'] for lic in spdx_data['licenses']}
-            print(f"Loaded {len(license_names)} SPDX license names")
-        except Exception as e:
-            print(f"Warning: Could not fetch SPDX license list: {e}")
-            license_names = {}
-        
         if not os.path.exists(output_file):
             print("Error: The results file was not found.")
-            with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                f.write("has_licenses=false\n")
-                f.write("comment_body=No scan results file found.\n")
+            print("::set-output name=has_licenses::false")
+            print("::set-output name=comment_body::No scan results file found.")
             exit(1)
 
         with open(output_file, 'r') as f:
             data = json.load(f)
-
+        
+        # Check if the scan itself returned any results
         if not data.get('files', []):
-            comment_body = "<!-- scancode-license-check -->\n"
-            comment_body += "### ⚠️ ScanCode Check: NO FILES SCANNED\n\n"
+            comment_body = "### ⚠️ ScanCode Check: NO FILES SCANNED\n\n"
             comment_body += "No files were found to scan, or the scan failed to produce a valid output."
-            
-            with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                f.write("has_licenses=false\n")
-                f.write(f"comment_body<<EOF\n{comment_body}\nEOF\n")
+            print("::set-output name=has_licenses::false")
+            print(f"::set-output name=comment_body::{comment_body}")
             exit(0)
 
+        # Check for license detections from the `license_detections` array
         licenses = data.get('license_detections', [])
         
         comment_body = ""
@@ -96,30 +86,22 @@ runs:
         
         if licenses:
             has_licenses = "true"
-            comment_body += "<!-- scancode-license-check -->\n"
             comment_body += "### ✅ ScanCode License Check: SUCCESS\n\n"
             comment_body += "The following licenses were detected:\n\n"
-            comment_body += "| License Name | SPDX ID | Files |\n"
-            comment_body += "|---|---|---|\n"
+            comment_body += "| License Expression | Files |\n"
+            comment_body += "|---|---|\n"
         
             for license_item in licenses:
                 license_expression = license_item['license_expression']
-                spdx_id = license_item['license_expression_spdx']
-                
-                # Get full license name from SPDX data
-                license_name = license_names.get(spdx_id, spdx_id)
-                
                 file_paths = [match['from_file'] for match in license_item['reference_matches']]
-                comment_body += f"| {license_name} | `{spdx_id}` | `{', '.join(file_paths)}` |\n"
+                comment_body += f"| `{license_expression}` | `{', '.join(file_paths)}` |\n"
         else:
-            comment_body += "<!-- scancode-license-check -->\n"
             comment_body += "### ⚠️ ScanCode License Check: NO LICENSES DETECTED\n\n"
             comment_body += "No license information was found in the scanned files."
-
-        with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-            f.write(f"has_licenses={has_licenses}\n")
-            f.write(f"comment_body<<EOF\n{comment_body}\nEOF\n")
-
+        
+        print(f"::set-output name=has_licenses::{has_licenses}")
+        print(f"::set-output name=comment_body::{comment_body}")
+    
     - name: Check Keys and Extract Values
       id: check
       shell: python
@@ -136,6 +118,7 @@ runs:
                 with open(cff_file, 'r') as f:
                     data = yaml.safe_load(f)
                 
+                # Look for identifiers in the CITATION.cff
                 identifiers = data.get('identifiers', [])
                 
                 for identifier in identifiers:
@@ -159,9 +142,9 @@ runs:
         except Exception as e:
             print(f"Error parsing {cff_file}: {e}")
         
-        with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-            f.write(f"doi-value={doi_value}\n")
-            f.write(f"swhid-value={swhid_value}\n")
+        # Set GitHub outputs
+        print(f"::set-output name=doi-value::{doi_value}")
+        print(f"::set-output name=swhid-value::{swhid_value}")
     
     - name: Create or Update Pull Request Comment
       if: github.event_name == 'pull_request'
@@ -199,7 +182,7 @@ runs:
           });
 
           const existingComment = comments.find(
-            (comment) => comment.body.includes('<!-- scancode-license-check -->')
+            (comment) => comment.body.includes('### ScanCode License Check')
           );
 
           if (existingComment) {
@@ -219,3 +202,4 @@ runs:
               body: commentBody
             });
           }
+    
