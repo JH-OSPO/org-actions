@@ -37,13 +37,7 @@ runs:
         python -m pip install --upgrade pip
         pip install scancode-toolkit "boolean.py>=4.0" "click==7.1.2"
     
-    - name: Install yq
-      shell: bash
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y wget
-        sudo wget https://github.com/mikefarah/yq/releases/download/v4.44.2/yq_linux_amd64 -O /usr/bin/yq
-        sudo chmod +x /usr/bin/yq
+
     
     - name: Run ScanCode License Scan
       shell: bash
@@ -110,35 +104,44 @@ runs:
     
     - name: Check Keys and Extract Values
       id: check
-      shell: bash
+      shell: python
       run: |
-        CFF_FILE="citation.cff"
-        extract_value() {
-          local KEY_TYPE="$1"
-          local FILE="$2"
-          # Use "streq" for robust string comparison in yq
-          yq '.identifiers[] | select(.type == "'"$KEY_TYPE"'") | .value' "$FILE" 2>/dev/null
-        }
-
-        DOI_VALUE=$(extract_value "doi" "$CFF_FILE" || echo "")
+        import yaml
+        import os
         
-        if [ -n "$DOI_VALUE" ]; then
-          echo "Found DOI value: $DOI_VALUE"
-          echo "doi-value=$DOI_VALUE" >> $GITHUB_OUTPUT
-        else
-          echo "DOI identifier not found."
-          echo "doi-value=" >> $GITHUB_OUTPUT
-        fi
-
-        SWHID_VALUE=$(extract_value "swhid" "$CFF_FILE" || echo "")
+        cff_file = "citation.cff"
+        doi_value = ""
+        swhid_value = ""
         
-        if [ -n "$SWHID_VALUE" ]; then
-          echo "Found SWHID value: $SWHID_VALUE"
-          echo "swhid-value=$SWHID_VALUE" >> $GITHUB_OUTPUT
-        else
-          echo "SWHID identifier not found."
-          echo "swhid-value=" >> $GITHUB_OUTPUT
-        fi
+        try:
+            if os.path.exists(cff_file):
+                with open(cff_file, 'r') as f:
+                    data = yaml.safe_load(f)
+                
+                # Look for identifiers in the CITATION.cff
+                identifiers = data.get('identifiers', [])
+                
+                for identifier in identifiers:
+                    if identifier.get('type') == 'doi':
+                        doi_value = identifier.get('value', '')
+                        print(f"Found DOI value: {doi_value}")
+                    elif identifier.get('type') == 'swhid':
+                        swhid_value = identifier.get('value', '')
+                        print(f"Found SWHID value: {swhid_value}")
+                
+                if not doi_value:
+                    print("DOI identifier not found.")
+                if not swhid_value:
+                    print("SWHID identifier not found.")
+            else:
+                print(f"File {cff_file} not found.")
+        
+        except Exception as e:
+            print(f"Error parsing {cff_file}: {e}")
+        
+        # Set GitHub outputs
+        print(f"::set-output name=doi-value::{doi_value}")
+        print(f"::set-output name=swhid-value::{swhid_value}")
     
     - name: Create or Update Pull Request Comment
       if: github.event_name == 'pull_request'
